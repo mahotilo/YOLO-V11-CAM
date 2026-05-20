@@ -21,7 +21,7 @@ class ActivationsAndGradients:
 
         if self.reshape_transform is not None:
             activation = self.reshape_transform(activation)
-        self.activations.append(activation.cpu().detach())
+        self.activations.append(activation.cpu().detach().numpy())
 
     def save_gradient(self, module, input, output):
         if not hasattr(output, "requires_grad") or not output.requires_grad:
