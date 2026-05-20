@@ -63,25 +63,29 @@ class BaseCAM:
         return cam
 
     def forward(self,
-    # Вмикаємо градієнти, бо predict() їх вимикає
-    with torch.enable_grad():
         outputs = self.activations_and_grads(input_tensor)
         
-        # У нових YOLO вихід — це кортеж (y, x). Беремо x (logits)
-        if isinstance(outputs, tuple):
-            logits = outputs[1]
-        else:
-            logits = outputs
-
-        if targets is None:
-            # Для класифікації беремо argmax від логітів
+        # Якщо на вході був тензор, outputs[0] — це сирі логіти/ймовірності, а не Results
+        if not hasattr(outputs[0], 'probs'):
+            # Вихід моделі згідно Classify.forward — це tuple (y, x)
+            # y = softmax, x = logits. Для CAM краще брати logits
+            logits = outputs[0][1] if isinstance(outputs[0], tuple) else outputs[0]
+            
+            # Визначаємо категорію через argmax, бо об'єкта .probs немає
             target_categories = torch.argmax(logits, dim=-1).cpu().numpy()
             targets = [ClassifierOutputTarget(cat) for cat in target_categories]
-
+            
+            # Для розрахунку loss використовуємо logits
+            current_outputs = logits
+        else:
+            # Старий шлях для об'єктів Results (коли працює через img)
+            target_categories = outputs[0].probs.top1 
+            targets = [ClassifierOutputTarget(target_categories)]
+            current_outputs = outputs[0].probs.data
+        
         if self.uses_gradients:
             self.model.zero_grad()
-            # Обчислюємо loss саме на основі логітів
-            loss = sum([target(output) for target, output in zip(targets, logits)])
+            loss = sum([target(output) for target, output in zip(targets, current_outputs)])
             loss.backward(retain_graph=True)
             
         # In most of the saliency attribution papers, the saliency is
