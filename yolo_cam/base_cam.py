@@ -57,45 +57,45 @@ class BaseCAM:
       cam = weighted_activations.sum(axis=1)
     return cam
 
-    def forward(self,
-                input_tensor: torch.Tensor,
-                targets: List[torch.nn.Module],
-                eigen_smooth: bool = False) -> np.ndarray:
+  def forward(self,
+              input_tensor: torch.Tensor,
+              targets: List[torch.nn.Module],
+              eigen_smooth: bool = False) -> np.ndarray:
 
-        # Визначаємо, як виконувати інференс моделі
-        if isinstance(input_tensor, torch.Tensor):
-            # Передаємо тензор у predict, щоб Ultralytics зібрав повноцінний Results
-            # verbose=False вимикає зайвий спам у консолі
-            results = self.model.predict(input_tensor, verbose=False)
-            # Зберігаємо об'єкт Results прямо в екземпляр класу CAM
-            self.inference_result = results[0] if isinstance(results, list) else results
+    # Визначаємо, як виконувати інференс моделі
+    if isinstance(input_tensor, torch.Tensor):
+      # Передаємо тензор у predict, щоб Ultralytics зібрав повноцінний Results
+      # verbose=False вимикає зайвий спам у консолі
+      results = self.model.predict(input_tensor, verbose=False)
+      # Зберігаємо об'єкт Results прямо в екземпляр класу CAM
+      self.inference_result = results[0] if isinstance(results, list) else results
             
-            # Оскільки activations_and_grads знімає хуки при прямому прогоні, 
-            # викликаємо його, але вихід ігноруємо, бо результати вже маємо
-            _ = self.activations_and_grads(input_tensor)
-        else:
-            # Якщо прийшов NumPy (старий шлях)
-            results = self.activations_and_grads(input_tensor)
-            self.inference_result = results[0] if isinstance(results, list) else results
+      # Оскільки activations_and_grads знімає хуки при прямому прогоні, 
+      # викликаємо його, але вихід ігноруємо, бо результати вже маємо
+      _ = self.activations_and_grads(input_tensor)
+    else:
+      # Якщо прийшов NumPy (старий шлях)
+      results = self.activations_and_grads(input_tensor)
+      self.inference_result = results[0] if isinstance(results, list) else results
 
-        # Записуємо у стандартний список для сумісності з вашими старими викликами
-        self.outputs = [self.inference_result]
+    # Записуємо у стандартний список для сумісності з вашими старими викликами
+    self.outputs = [self.inference_result]
 
-        if targets is None:
-            if self.task == 'cls':
-                # Тепер об'єкт Results гарантовано тут є, і .probs.top5 працює завжди!
-                target_categories = self.inference_result.probs.top5
-            elif self.task == 'od':
-                target_categories = self.inference_result.boxes.cls
-            elif self.task == 'seg':
-                target_categories = [category['name'] for category in self.inference_result.summary()]
-            else:
-                print('Invalid Task Entered')
+    if targets is None:
+      if self.task == 'cls':
+        # Тепер об'єкт Results гарантовано тут є, і .probs.top5 працює завжди!
+        target_categories = self.inference_result.probs.top5
+      elif self.task == 'od':
+        target_categories = self.inference_result.boxes.cls
+      elif self.task == 'seg':
+        target_categories = [category['name'] for category in self.inference_result.summary()]
+      else:
+        print('Invalid Task Entered')
                 
-            targets = [ClassifierOutputTarget(category) for category in target_categories]
+      targets = [ClassifierOutputTarget(category) for category in target_categories]
 
-        cam_per_layer = self.compute_cam_per_layer(input_tensor, targets, eigen_smooth)
-        return self.aggregate_multi_layers(cam_per_layer)
+    cam_per_layer = self.compute_cam_per_layer(input_tensor, targets, eigen_smooth)
+    return self.aggregate_multi_layers(cam_per_layer)
 
   def get_target_width_height(self,
                               input_tensor: np.array) -> Tuple[int, int]:
