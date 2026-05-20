@@ -62,56 +62,37 @@ class BaseCAM:
               targets: List[torch.nn.Module],
               eigen_smooth: bool = False) -> np.ndarray:
 
-    if isinstance(input_tensor, torch.Tensor):
-      outputs = self.activations_and_grads(input_tensor)
-      self.outputs.append(outputs)
+    outputs = self.activations_and_grads(input_tensor)
+    self.outputs.append(outputs[0])
+    
+    if targets is None:
+      if self.task == 'cls':
+        # Перевіряємо, чи це об'єкт Results від Ultralytics (для NumPy входу)
+        if hasattr(outputs[0], 'probs') and outputs[0].probs is not None:
+          target_categories = outputs[0].probs.top5
+        else:
+          # Якщо це чистий тензор/список тензорів логітів (для нашого yolo_tensor)
+          # Витягуємо сирий тензор, якщо він загорнутий у список
+          logits = outputs[0][0] if isinstance(outputs[0], list) else outputs[0]
+          # Якщо тензор має розмірність батчу [1, 5], прибираємо її для argmax
+          if logits.ndim > 1:
+            logits = logits.squeeze(0)
           
-      if targets is None:
-        if self.task == 'cls':
-          if hasattr(outputs, 'probs') and outputs.probs is not None:
-            try:
-              target_categories = outputs.probs.top5
-            except AttributeError:
-              cls_list = outputs.boxes.cls.cpu().numpy().tolist()
-              target_categories = cls_list if len(cls_list) > 0 else [0]
-          else:
-            target_categories = torch.argmax(outputs, dim=-1).cpu().numpy().tolist()
-            if not isinstance(target_categories, list):
-              target_categories = [target_categories]
-        elif self.task == 'od':
-          if hasattr(outputs, 'boxes') and outputs.boxes is not None:
-            target_categories = outputs.boxes.cls
-          else:
-            target_categories = [0]
-        else:
-          target_categories = [0]
-              
-        targets = [ClassifierOutputTarget(category) for category in target_categories]
-    else:
-      outputs = self.activations_and_grads(input_tensor)
-      self.outputs.append(outputs[0])
-      if targets is None:
-        if self.task == 'od':
-          target_categories = outputs[0].boxes.cls
-        elif self.task == 'cls':
-          try:
-            target_categories = outputs[0].probs.top5
-          except AttributeError:
-            try:
-              cls_list = outputs[0].boxes.cls.cpu().numpy().tolist()
-              target_categories = cls_list if len(cls_list) > 0 else [0]
-            except Exception:
-              target_categories = [0]
-        elif self.task == 'seg':
-          target_categories = [category['name'] for category in outputs[0].summary()]
-        else:
-          print('Invalid Task Entered')
-        targets = [ClassifierOutputTarget(category) for category in target_categories]
+          target_categories = [torch.argmax(logits, dim=-1).cpu().item()]
+      
+      elif self.task == 'od':
+        target_categories = outputs[0].boxes.cls
+      elif self.task == 'seg':
+        target_categories = [category['name'] for category in outputs[0].summary()]
+      else:
+        print('Invalid Task Entered')
+        
+      targets = [ClassifierOutputTarget(category) for category in target_categories]
         
     if self.uses_gradients:
       self.model.zero_grad()
       if isinstance(input_tensor, torch.Tensor):
-        loss = sum([target(output) for target, output in zip(targets, [outputs])])
+        loss = sum([target(output) for target, output in zip(targets, [outputs[0]])])
       else:
         loss = sum([target(output) for target, output in zip(targets, outputs)])
       loss.backward(retain_graph=True)
