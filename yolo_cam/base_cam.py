@@ -57,50 +57,45 @@ class BaseCAM:
       cam = weighted_activations.sum(axis=1)
     return cam
 
-  def forward(self,
-              input_tensor: np.array,
-              targets: List[torch.nn.Module],
-              eigen_smooth: bool = False) -> np.ndarray:
+    def forward(self,
+                input_tensor: torch.Tensor,
+                targets: List[torch.nn.Module],
+                eigen_smooth: bool = False) -> np.ndarray:
 
-    outputs = self.activations_and_grads(input_tensor)
-    self.outputs.append(outputs[0])
-    
-    if targets is None:
-      if self.task == 'cls':
-        # Перевіряємо, чи це об'єкт Results від Ultralytics (для NumPy входу)
-        if hasattr(outputs[0], 'probs') and outputs[0].probs is not None:
-          target_categories = outputs[0].probs.top5
+        # Визначаємо, як виконувати інференс моделі
+        if isinstance(input_tensor, torch.Tensor):
+            # Передаємо тензор у predict, щоб Ultralytics зібрав повноцінний Results
+            # verbose=False вимикає зайвий спам у консолі
+            results = self.model.predict(input_tensor, verbose=False)
+            # Зберігаємо об'єкт Results прямо в екземпляр класу CAM
+            self.inference_result = results[0] if isinstance(results, list) else results
+            
+            # Оскільки activations_and_grads знімає хуки при прямому прогоні, 
+            # викликаємо його, але вихід ігноруємо, бо результати вже маємо
+            _ = self.activations_and_grads(input_tensor)
         else:
-          # Якщо це чистий тензор/список тензорів логітів (для нашого yolo_tensor)
-          # Витягуємо сирий тензор, якщо він загорнутий у список
-          logits = outputs[0][0] if isinstance(outputs[0], list) else outputs[0]
-          # Якщо тензор має розмірність батчу [1, 5], прибираємо її для argmax
-          if logits.ndim > 1:
-            logits = logits.squeeze(0)
-          
-          target_categories = [torch.argmax(logits, dim=-1).cpu().item()]
-      
-      elif self.task == 'od':
-        target_categories = outputs[0].boxes.cls
-      elif self.task == 'seg':
-        target_categories = [category['name'] for category in outputs[0].summary()]
-      else:
-        print('Invalid Task Entered')
-        
-      targets = [ClassifierOutputTarget(category) for category in target_categories]
-        
-    if self.uses_gradients:
-      self.model.zero_grad()
-      if isinstance(input_tensor, torch.Tensor):
-        loss = sum([target(output) for target, output in zip(targets, [outputs[0]])])
-      else:
-        loss = sum([target(output) for target, output in zip(targets, outputs)])
-      loss.backward(retain_graph=True)
-    
-    cam_per_layer = self.compute_cam_per_layer(input_tensor,
-                                               targets,
-                                               eigen_smooth)
-    return self.aggregate_multi_layers(cam_per_layer)
+            # Якщо прийшов NumPy (старий шлях)
+            results = self.activations_and_grads(input_tensor)
+            self.inference_result = results[0] if isinstance(results, list) else results
+
+        # Записуємо у стандартний список для сумісності з вашими старими викликами
+        self.outputs = [self.inference_result]
+
+        if targets is None:
+            if self.task == 'cls':
+                # Тепер об'єкт Results гарантовано тут є, і .probs.top5 працює завжди!
+                target_categories = self.inference_result.probs.top5
+            elif self.task == 'od':
+                target_categories = self.inference_result.boxes.cls
+            elif self.task == 'seg':
+                target_categories = [category['name'] for category in self.inference_result.summary()]
+            else:
+                print('Invalid Task Entered')
+                
+            targets = [ClassifierOutputTarget(category) for category in target_categories]
+
+        cam_per_layer = self.compute_cam_per_layer(input_tensor, targets, eigen_smooth)
+        return self.aggregate_multi_layers(cam_per_layer)
 
   def get_target_width_height(self,
                               input_tensor: np.array) -> Tuple[int, int]:
