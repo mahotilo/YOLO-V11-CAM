@@ -50,7 +50,7 @@ class ActivationsAndGradients:
         return self.model.model(x)
       return self.model(x)
     else:
-      # Якщо це NumPy масив (наприклад, rgb_img), викликаємо стандартний predict
+      # Якщо це NumPy масив, викликаємо стандартний predict
       # але нам потрібно повернути саме СИРИЙ вихід моделі, а не об'єкт Results,
       # щоб логіка обчислення loss.backward() у base_cam.py була однаковою!
       outputs = self.model(x)
