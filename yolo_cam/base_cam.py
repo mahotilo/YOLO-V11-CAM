@@ -63,45 +63,27 @@ class BaseCAM:
         return cam
 
     def forward(self,
-                input_tensor: np.array,
-                targets: List[torch.nn.Module],
-                eigen_smooth: bool = False) -> np.ndarray:
-
-#         if self.cuda:
-#             input_tensor = torch.tensor(input_tensor).cuda()
-
-#         if self.compute_input_gradient:
-#             input_tensor = torch.autograd.Variable(input_tensor,
-#                                                    requires_grad=True)
-
+    # Вмикаємо градієнти, бо predict() їх вимикає
+    with torch.enable_grad():
         outputs = self.activations_and_grads(input_tensor)
-        self.outputs.append(outputs[0])
+        
+        # У нових YOLO вихід — це кортеж (y, x). Беремо x (logits)
+        if isinstance(outputs, tuple):
+            logits = outputs[1]
+        else:
+            logits = outputs
+
         if targets is None:
-#             target_categories = np.argmax(outputs[0].cpu().data.numpy(), axis=-1)
-            if self.task == 'od':
-                target_categories = outputs[0].boxes.cls
-            elif self.task == 'cls':
-                try:
-                    target_categories = outputs[0].probs.top5
-                except AttributeError:
-                    try:
-                        cls_list = outputs[0].boxes.cls.cpu().numpy().tolist()
-                        target_categories = cls_list if len(cls_list) > 0 else [0]
-                    except Exception:
-                        target_categories = [0]
-            elif self.task == 'seg':
-                target_categories = [category['name'] for category in outputs[0].summary()]
-            else:
-                print('Invalid Task Entered')
-            targets = [ClassifierOutputTarget(
-                category) for category in target_categories]
+            # Для класифікації беремо argmax від логітів
+            target_categories = torch.argmax(logits, dim=-1).cpu().numpy()
+            targets = [ClassifierOutputTarget(cat) for cat in target_categories]
 
         if self.uses_gradients:
             self.model.zero_grad()
-            loss = sum([target(output)
-                       for target, output in zip(targets, outputs)])
+            # Обчислюємо loss саме на основі логітів
+            loss = sum([target(output) for target, output in zip(targets, logits)])
             loss.backward(retain_graph=True)
-
+            
         # In most of the saliency attribution papers, the saliency is
         # computed with a single target layer.
         # Commonly it is the last convolutional layer.
