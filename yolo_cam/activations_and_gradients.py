@@ -26,6 +26,8 @@ class ActivationsAndGradients:
         self.activations.append(activation.cpu().detach().numpy())
 
     def save_gradient(self, module, input, output):
+        if isinstance(output, tuple):
+            output = output[0]        
         if not hasattr(output, "requires_grad") or not output.requires_grad:
             # You can only register hooks on tensor requires grad.
             return
