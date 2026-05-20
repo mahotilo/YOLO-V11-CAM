@@ -17,10 +17,12 @@ class ActivationsAndGradients:
                 target_layer.register_forward_hook(self.save_gradient))
 
     def save_activation(self, module, input, output):
-        activation = output
+        #activation = output
+        activation = output[0] if isinstance(output, tuple) else output
 
         if self.reshape_transform is not None:
             activation = self.reshape_transform(activation)
+        #self.activations.append(activation.cpu().detach())
         self.activations.append(activation.cpu().detach().numpy())
 
     def save_gradient(self, module, input, output):
